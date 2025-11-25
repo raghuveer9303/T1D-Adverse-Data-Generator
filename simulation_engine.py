@@ -28,6 +28,14 @@ from simulation.humanization.scheduler import (
     maybe_trigger_meal_event,
 )
 from simulation.humanization.sensor_variability import apply_sensor_noise
+# Enhanced metabolic modeling
+from simulation.metabolic_enhanced.insulin_pools import (
+    InsulinPools,
+    evolve_insulin_pools,
+)
+from simulation.metabolic_enhanced.insulin_action import InsulinActionBuffer
+from simulation.metabolic_enhanced.enhanced_metabolic import calculate_next_glucose_enhanced
+from simulation.metabolic_enhanced.bolus_calculator import calculate_bolus_insulin
 
 
 def _update_fatigue(current: float, intensity: float) -> float:
@@ -80,6 +88,25 @@ def process_single_patient(
     hour_of_day = state.timestamp_utc.hour + state.timestamp_utc.minute / 60.0
     activity_timestamp = adjust_for_weekend_wake_shift(state.timestamp_utc)
 
+    # Initialize enhanced insulin pools (with backward compatibility)
+    if "insulin_rapid_acting_units" in state.metabolic_state:
+        insulin_pools = InsulinPools(
+            rapid_acting=state.metabolic_state.get("insulin_rapid_acting_units", 0.1),
+            basal=state.metabolic_state.get("insulin_basal_units", 0.4),
+        )
+    else:
+        # Convert legacy single insulin value
+        insulin_pools = InsulinPools.from_legacy(insulin_on_board)
+
+    # Initialize insulin action buffer (with backward compatibility)
+    if state.insulin_action_buffer_state is not None:
+        buffer = InsulinActionBuffer(
+            buffer=state.insulin_action_buffer_state,
+            current_index=state.simulation_tick % 60,  # Use tick to track position
+        )
+    else:
+        buffer = InsulinActionBuffer.create()
+
     activity_mode, activity_intensity = determine_activity(
         activity_timestamp,
         rng,
@@ -99,19 +126,39 @@ def process_single_patient(
         state.last_meal_time,
     )
     last_meal_time = state.last_meal_time
+    bolus_insulin = 0.0
     if meal_event:
         meal_name, meal_carbs = meal_event
         carbs_in_stomach += meal_carbs
         last_meal_time = state.timestamp_utc
+        
+        # Calculate bolus insulin for meal
+        bolus_insulin = calculate_bolus_insulin(
+            carbs_grams=meal_carbs,
+            current_glucose=current_glucose,
+            rng=rng,
+        )
+        # Add bolus to rapid-acting pool
+        insulin_pools = evolve_insulin_pools(
+            pools=insulin_pools,
+            add_basal=False,  # Don't add basal yet, we'll do it in enhanced model
+            add_bolus=bolus_insulin,
+        )
 
-    glucose_true, insulin_on_board, carbs_in_stomach = calculate_next_glucose(
+    # Use enhanced metabolic model
+    glucose_true, insulin_pools, carbs_in_stomach = calculate_next_glucose_enhanced(
         current_glucose=current_glucose,
-        insulin_on_board=insulin_on_board,
+        insulin_pools=insulin_pools,
+        insulin_action_buffer=buffer,
         carbs_in_stomach=carbs_in_stomach,
         sensitivity_factor=profile.insulin_sensitivity_factor,
         activity_intensity=activity_intensity,
+        hour_of_day=hour_of_day,
         rng=rng,
     )
+    
+    # Update insulin_on_board for backward compatibility
+    insulin_on_board = insulin_pools.to_legacy()
 
     vitals_target = calculate_vitals_target(
         profile=profile,
@@ -132,7 +179,9 @@ def process_single_patient(
 
     updated_metabolic = dict(state.metabolic_state)
     updated_metabolic["glucose_true_mgdl"] = glucose_true
-    updated_metabolic["insulin_on_board_units"] = insulin_on_board
+    updated_metabolic["insulin_on_board_units"] = insulin_on_board  # Legacy compatibility
+    updated_metabolic["insulin_rapid_acting_units"] = insulin_pools.rapid_acting
+    updated_metabolic["insulin_basal_units"] = insulin_pools.basal
     updated_metabolic["carbs_in_stomach_grams"] = carbs_in_stomach
 
     glucose_sensor = apply_sensor_noise(
@@ -245,6 +294,7 @@ def process_single_patient(
         meal_flags_date=meal_flags_date,
         daily_meal_flags=daily_meal_flags,
         last_meal_time=last_meal_time,
+        insulin_action_buffer_state=buffer.buffer.copy(),  # Save buffer state
     )
 
     payload = SensorPayload(

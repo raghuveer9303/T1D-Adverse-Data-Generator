@@ -255,7 +255,7 @@ class PatientStaticProfile:
         # CASCADE STEP 1: Age & Sex (Independent Base Demographics)
         # =====================================================================
         # Sex: 50/50 distribution
-        sex = Sex.MALE if rng.random() < 0.5 else Sex.FEMALE
+        sex = Sex.MALE if rng.random() < 0.489 else Sex.FEMALE
         gender = sex.value
 
         # Age: Truncated normal (18-85, μ=45, σ=15)
@@ -352,6 +352,9 @@ def _default_metabolic_state() -> Dict[str, float]:
         "glucose_true_mgdl": 105.0,
         "insulin_on_board_units": 0.5,
         "carbs_in_stomach_grams": 0.0,
+        # Enhanced model fields (optional, for backward compatibility)
+        "insulin_rapid_acting_units": 0.1,
+        "insulin_basal_units": 0.4,
     }
 
 
@@ -371,6 +374,8 @@ class PatientDynamicState:
     meal_flags_date: date = field(default_factory=date.today)
     daily_meal_flags: Dict[str, bool] = field(default_factory=_default_meal_flags)
     last_meal_time: Optional[datetime] = None
+    # Enhanced model state (optional, stored as dict for serialization)
+    insulin_action_buffer_state: Optional[List[float]] = None  # For enhanced insulin action delays
 
 
 @dataclass
