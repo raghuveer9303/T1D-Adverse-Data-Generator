@@ -11,6 +11,8 @@ from typing import List, Optional
 
 import numpy as np
 
+from simulation.metabolic_enhanced.insulin_pools import InsulinPools
+
 
 # Insulin action delay parameters
 ACTION_DELAY_MINUTES = 60  # Buffer size (1 hour)
@@ -38,10 +40,10 @@ class InsulinActionBuffer:
 
     def advance(self) -> None:
         """Advance time by one minute (circular buffer)."""
-        # Clear current slot (it will be used for new insulin)
-        self.buffer[self.current_index] = 0.0
-        # Move to next slot
+        # Move to next slot first
         self.current_index = (self.current_index + 1) % len(self.buffer)
+        # Clear the new slot (it will be used for new insulin)
+        self.buffer[self.current_index] = 0.0
 
     def get_current_action(self) -> float:
         """
@@ -73,6 +75,7 @@ def calculate_insulin_action(
     buffer: InsulinActionBuffer,
     insulin_pools: InsulinPools,
     sensitivity_factor: float,
+    new_bolus: float = 0.0,
 ) -> float:
     """
     Calculate effective insulin action considering delays.
@@ -81,18 +84,21 @@ def calculate_insulin_action(
         buffer: Insulin action delay buffer
         insulin_pools: Current insulin pools
         sensitivity_factor: Patient's insulin sensitivity
+        new_bolus: New bolus insulin to add to buffer (only new doses, not total pool)
     
     Returns:
         Effective insulin action (mg/dL reduction per minute)
     """
-    # Add current rapid-acting insulin to buffer (will act with delay)
-    buffer.add_insulin(insulin_pools.rapid_acting)
+    # Only add NEW bolus insulin to buffer (not the entire pool repeatedly)
+    # The buffer tracks individual insulin doses over time
+    if new_bolus > 0.0:
+        buffer.add_insulin(new_bolus)
 
     # Basal insulin acts immediately (it's already been infusing)
     # But with lower activity per unit (it's designed for steady state)
     basal_action = insulin_pools.basal * sensitivity_factor * 1.5
 
-    # Get delayed action from rapid-acting insulin
+    # Get delayed action from buffered insulin doses
     delayed_action = buffer.get_current_action() * sensitivity_factor * 2.5
 
     # Advance buffer for next minute

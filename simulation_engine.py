@@ -99,10 +99,13 @@ def process_single_patient(
         insulin_pools = InsulinPools.from_legacy(insulin_on_board)
 
     # Initialize insulin action buffer (with backward compatibility)
-    if state.insulin_action_buffer_state is not None:
+    # Check if we have saved buffer state (both buffer and current_index)
+    buffer_state = state.metabolic_state.get("insulin_action_buffer_state")
+    buffer_index = state.metabolic_state.get("insulin_action_buffer_index")
+    if buffer_state is not None and buffer_index is not None:
         buffer = InsulinActionBuffer(
-            buffer=state.insulin_action_buffer_state,
-            current_index=state.simulation_tick % 60,  # Use tick to track position
+            buffer=buffer_state,
+            current_index=int(buffer_index),
         )
     else:
         buffer = InsulinActionBuffer.create()
@@ -154,6 +157,7 @@ def process_single_patient(
         sensitivity_factor=profile.insulin_sensitivity_factor,
         activity_intensity=activity_intensity,
         hour_of_day=hour_of_day,
+        new_bolus=bolus_insulin,  # Pass new bolus to buffer
         rng=rng,
     )
     
@@ -183,6 +187,9 @@ def process_single_patient(
     updated_metabolic["insulin_rapid_acting_units"] = insulin_pools.rapid_acting
     updated_metabolic["insulin_basal_units"] = insulin_pools.basal
     updated_metabolic["carbs_in_stomach_grams"] = carbs_in_stomach
+    # Save buffer state for restoration
+    updated_metabolic["insulin_action_buffer_state"] = buffer.buffer.copy()
+    updated_metabolic["insulin_action_buffer_index"] = float(buffer.current_index)
 
     glucose_sensor = apply_sensor_noise(
         glucose_true + profile.cgm_noise_factor,
@@ -294,7 +301,6 @@ def process_single_patient(
         meal_flags_date=meal_flags_date,
         daily_meal_flags=daily_meal_flags,
         last_meal_time=last_meal_time,
-        insulin_action_buffer_state=buffer.buffer.copy(),  # Save buffer state
     )
 
     payload = SensorPayload(

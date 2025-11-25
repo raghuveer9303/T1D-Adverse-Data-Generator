@@ -255,7 +255,7 @@ class PatientStaticProfile:
         # CASCADE STEP 1: Age & Sex (Independent Base Demographics)
         # =====================================================================
         # Sex: 50/50 distribution
-        sex = Sex.MALE if rng.random() < 0.489 else Sex.FEMALE
+        sex = Sex.MALE if rng.random() < 0.5 else Sex.FEMALE
         gender = sex.value
 
         # Age: Truncated normal (18-85, μ=45, σ=15)
@@ -341,7 +341,7 @@ def _default_meal_flags() -> Dict[str, bool]:
     return {"breakfast": False, "lunch": False, "dinner": False}
 
 
-def _default_metabolic_state() -> Dict[str, float]:
+def _default_metabolic_state() -> Dict[str, Union[float, List[float]]]:
     """Initialize metabolic state with realistic fasting values.
 
     - Fasting glucose: ~100-110 mg/dL (slightly elevated for diabetics)
@@ -367,15 +367,13 @@ class PatientDynamicState:
     current_activity_mode: ActivityMode
     activity_intensity: float  # Normalized 0.0-1.0
     cumulative_fatigue: float  # Normalized 0.0-1.0
-    metabolic_state: Dict[str, float] = field(default_factory=_default_metabolic_state)
+    metabolic_state: Dict[str, Union[float, List[float]]] = field(default_factory=_default_metabolic_state)
     solver_internal_vector: List[float] = field(
         default_factory=lambda: [105.0, 0.5, 0.0]  # Match initial metabolic state
     )
     meal_flags_date: date = field(default_factory=date.today)
     daily_meal_flags: Dict[str, bool] = field(default_factory=_default_meal_flags)
     last_meal_time: Optional[datetime] = None
-    # Enhanced model state (optional, stored as dict for serialization)
-    insulin_action_buffer_state: Optional[List[float]] = None  # For enhanced insulin action delays
 
 
 @dataclass

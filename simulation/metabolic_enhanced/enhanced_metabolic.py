@@ -42,6 +42,7 @@ def calculate_next_glucose_enhanced(
     sensitivity_factor: float,
     activity_intensity: float,
     hour_of_day: float,
+    new_bolus: float = 0.0,
     rng: Optional[np.random.Generator] = None,
 ) -> Tuple[float, InsulinPools, float]:
     """
@@ -97,6 +98,7 @@ def calculate_next_glucose_enhanced(
         buffer=insulin_action_buffer,
         insulin_pools=insulin_pools,
         sensitivity_factor=effective_sensitivity,
+        new_bolus=new_bolus,
     )
     glucose -= insulin_activity
 
