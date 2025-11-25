@@ -19,8 +19,9 @@ BASAL_INSULIN_RATE = 0.015  # ~0.9 units/hour
 # Rapid-acting insulin decay: 2% per minute (~35 min half-life)
 RAPID_ACTING_DECAY_RATE = 0.98
 
-# Basal insulin decay: 0.1% per minute (~24-hour half-life for long-acting)
-BASAL_DECAY_RATE = 0.999
+# Basal insulin decay: ~24-hour half-life for long-acting
+# For 24-hour (1440 minutes) half-life: 0.5^(1/1440) ≈ 0.999518
+BASAL_DECAY_RATE = 0.999518
 
 
 @dataclass

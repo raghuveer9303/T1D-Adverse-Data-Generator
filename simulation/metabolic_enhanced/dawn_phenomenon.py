@@ -11,18 +11,18 @@ from typing import Optional
 
 def calculate_dawn_glucose_rise(hour_of_day: float) -> float:
     """
-    Calculate glucose rise due to dawn phenomenon.
+    Calculate per-minute glucose rise rate due to dawn phenomenon.
     
     Dawn phenomenon occurs between 4-8 AM with peak around 6 AM.
-    Can cause 20-50 mg/dL rise in glucose.
+    Can cause up to 30 mg/dL total rise in glucose over the 4-hour window.
     
     Args:
         hour_of_day: Hour of day (0-24, including minutes as fraction)
     
     Returns:
-        Glucose rise in mg/dL (0-30 mg/dL typical)
+        Per-minute glucose rise rate in mg/dL (0-0.125 mg/dL/min at peak)
     """
-    # Dawn phenomenon window: 4-8 AM
+    # Dawn phenomenon window: 4-8 AM (240 minutes total)
     if hour_of_day < 4.0 or hour_of_day >= 8.0:
         return 0.0
 
@@ -30,16 +30,19 @@ def calculate_dawn_glucose_rise(hour_of_day: float) -> float:
     peak_hour = 6.0
     distance_from_peak = abs(hour_of_day - peak_hour)
 
-    # Maximum rise of 30 mg/dL at peak
-    max_rise = 30.0
+    # Maximum total rise of 30 mg/dL over 4-hour window
+    # Peak per-minute rate: 30 mg/dL / 240 min = 0.125 mg/dL per minute
+    max_total_rise = 30.0
+    window_minutes = 240.0  # 4 hours
+    max_per_minute_rate = max_total_rise / window_minutes
 
     # Linear decrease from peak (simplified model)
-    # At 4 AM and 8 AM: 0 mg/dL rise
-    # At 6 AM: 30 mg/dL rise
+    # At 4 AM and 8 AM: 0 mg/dL/min
+    # At 6 AM: 0.125 mg/dL/min
     if distance_from_peak <= 2.0:
         # Within 2 hours of peak
         severity = 1.0 - (distance_from_peak / 2.0)
-        return max_rise * severity
+        return max_per_minute_rate * severity
     else:
         return 0.0
 
