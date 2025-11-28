@@ -36,6 +36,11 @@ from simulation.metabolic_enhanced.insulin_pools import (
 from simulation.metabolic_enhanced.insulin_action import InsulinActionBuffer
 from simulation.metabolic_enhanced.enhanced_metabolic import calculate_next_glucose_enhanced
 from simulation.metabolic_enhanced.bolus_calculator import calculate_bolus_insulin
+# Physiologically coherent state generation
+from simulation.physiological_state import (
+    PhysiologicalStateFactory,
+    PhysiologicalContext,
+)
 
 
 def _update_fatigue(current: float, intensity: float) -> float:
@@ -164,23 +169,34 @@ def process_single_patient(
     # Update insulin_on_board for backward compatibility
     insulin_on_board = insulin_pools.to_legacy()
 
-    vitals_target = calculate_vitals_target(
-        profile=profile,
-        glucose=glucose_true,
+    # =================================================================
+    # Generate physiologically coherent state using new OOP architecture
+    # =================================================================
+    
+    # Create context for physiological calculations
+    phys_context = PhysiologicalContext(
+        glucose_mgdl=glucose_true,
+        baseline_heart_rate=profile.resting_hr_baseline,
+        max_heart_rate=profile.max_heart_rate,
+        hour_of_day=hour_of_day,
+        is_stressed=(activity_mode == ActivityMode.STRESS_EVENT),
+        rng=rng,
+    )
+    
+    # Generate coherent physiological state
+    state_factory = PhysiologicalStateFactory()
+    phys_state = state_factory.create_state(
+        activity_mode=activity_mode,
         activity_intensity=activity_intensity,
+        context=phys_context,
     )
-
-    circadian_heart_rate = apply_circadian_drift(
-        vitals_target["heart_rate_bpm"],
-        hour_of_day,
-        amplitude=5.0,
-    )
-    core_body_temp = apply_circadian_drift(36.6, hour_of_day, amplitude=0.5)
-
+    
+    # Generate waveforms using coherent heart rate
     ecg_wave, eda_wave = generate_waveform_snapshot(
-        heart_rate_bpm=circadian_heart_rate,
+        heart_rate_bpm=phys_state.heart_rate_bpm,
     )
 
+    # Update metabolic state
     updated_metabolic = dict(state.metabolic_state)
     updated_metabolic["glucose_true_mgdl"] = glucose_true
     updated_metabolic["insulin_on_board_units"] = insulin_on_board  # Legacy compatibility
@@ -191,6 +207,7 @@ def process_single_patient(
     updated_metabolic["insulin_action_buffer_state"] = buffer.buffer.copy()
     updated_metabolic["insulin_action_buffer_index"] = float(buffer.current_index)
 
+    # Calculate glucose sensor reading with noise
     glucose_sensor = apply_sensor_noise(
         glucose_true + profile.cgm_noise_factor,
         activity_intensity,
@@ -201,36 +218,42 @@ def process_single_patient(
     )
     glucose_delta = glucose_sensor - current_glucose
 
-    heart_rate_bpm = int(
-        round(apply_sensor_noise(circadian_heart_rate, activity_intensity, rng=rng))
+    # Apply final sensor noise to heart rate
+    heart_rate_with_noise = apply_sensor_noise(
+        phys_state.heart_rate_bpm,
+        activity_intensity,
+        rng=rng,
     )
+    heart_rate_bpm = int(round(
+        heart_rate_with_noise if heart_rate_with_noise is not None 
+        else phys_state.heart_rate_bpm
+    ))
+    
+    # Apply sensor noise to HRV
+    hrv_with_noise = apply_generic_sensor_noise(
+        phys_state.hrv_sdnn,
+        1.0,
+        rng=rng,
+    )
+    hrv_sdnn = float(hrv_with_noise if hrv_with_noise is not None else phys_state.hrv_sdnn)
+    
+    # Apply sensor noise to QT interval
+    qt_with_noise = apply_generic_sensor_noise(
+        phys_state.qt_interval_ms,
+        sigma=5.0,
+        rng=rng,
+    )
+    qt_interval = int(round(
+        qt_with_noise if qt_with_noise is not None else phys_state.qt_interval_ms
+    ))
 
-    # SpO2: healthy individuals maintain 95-100% even during exercise
-    # Slight decrease only at very high intensity, diabetics may have slightly lower baseline
-    spo2_base = 97.0  # Slightly lower baseline for diabetic population
-    spo2_exercise_drop = activity_intensity * 0.8  # Max ~0.8% drop at peak exercise
-    spo2_pct = float(np.clip(spo2_base - spo2_exercise_drop, 94.0, 100.0))
-
-    # Respiratory rate: 12-20 at rest, up to 30-40 during intense exercise
-    resp_rate_rpm = int(round(14 + activity_intensity * 22))
-
+    # Assemble payload dictionaries from coherent physiological state
     vitals_payload = {
         "heart_rate_bpm": heart_rate_bpm,
-        "hrv_sdnn": float(
-            apply_generic_sensor_noise(vitals_target["hrv_sdnn"], 1.0, rng=rng) or 0.0
-        ),
-        "qt_interval_ms": int(
-            round(
-                apply_generic_sensor_noise(
-                    vitals_target["qt_interval_ms"],
-                    sigma=5.0,
-                    rng=rng,
-                )
-                or 0.0
-            )
-        ),
-        "spo2_pct": spo2_pct,
-        "resp_rate_rpm": resp_rate_rpm,
+        "hrv_sdnn": hrv_sdnn,
+        "qt_interval_ms": qt_interval,
+        "spo2_pct": phys_state.spo2_pct,
+        "resp_rate_rpm": int(round(phys_state.respiratory_rate_rpm)),
     }
 
     metabolics_payload = {
@@ -238,40 +261,11 @@ def process_single_patient(
         "trend_arrow": _trend_arrow(glucose_delta),
     }
 
-    skin_temp_baseline = core_body_temp - 3.0 + activity_intensity * 0.6
-
-    # Steps per minute: realistic cadence based on activity mode
-    # Walking: ~80-100 steps/min, Running: ~140-180 steps/min
-    # Use activity_intensity thresholds to determine gait
-    if activity_intensity < 0.15:
-        steps_per_min = 0  # Sedentary/sleeping
-    elif activity_intensity < 0.4:
-        # Light walking: 60-90 steps/min
-        steps_per_min = int(round(60 + (activity_intensity - 0.15) * 120))
-    elif activity_intensity < 0.6:
-        # Brisk walking: 90-120 steps/min
-        steps_per_min = int(round(90 + (activity_intensity - 0.4) * 150))
-    else:
-        # Running: 120-180 steps/min
-        steps_per_min = int(round(120 + (activity_intensity - 0.6) * 150))
-
     wearable_payload = {
-        "steps_per_minute": steps_per_min,
-        "accel_y_g": float(
-            apply_generic_sensor_noise(activity_intensity * 1.1, 0.05, rng=rng) or 0.0
-        ),
-        "skin_temp_c": float(
-            apply_generic_sensor_noise(skin_temp_baseline, 0.2, rng=rng)
-            or skin_temp_baseline
-        ),
-        "eda_microsiemens": float(
-            apply_generic_sensor_noise(
-                5.0 + eda_wave.mean() * 0.1 + vitals_target["eda_peak_flag"] * 3.0,
-                0.3,
-                rng=rng,
-            )
-            or 5.0
-        ),
+        "steps_per_minute": phys_state.steps_per_minute,
+        "accel_y_g": phys_state.vertical_acceleration_g,
+        "skin_temp_c": phys_state.skin_temperature_c,
+        "eda_microsiemens": phys_state.eda_microsiemens,
     }
 
     waveform_payload = {
