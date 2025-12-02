@@ -1,0 +1,19 @@
+2025-12-02 14:11:54,087 - __main__ - INFO - ======================================================================
+2025-12-02 14:11:54,087 - __main__ - INFO - Logging initialized. Log file: ml_dataset_output/ml_dataset_generation_20251202_141154.log
+2025-12-02 14:11:54,087 - __main__ - INFO - Available CPU cores: 10
+2025-12-02 14:11:54,087 - __main__ - INFO - ======================================================================
+2025-12-02 14:11:54,087 - __main__ - INFO - Starting ML Dataset Generation
+2025-12-02 14:11:54,087 - __main__ - INFO - Configuration: 1000 patients, 3 days each
+2025-12-02 14:11:54,087 - __main__ - INFO - Using all 10 CPU cores for parallel processing
+2025-12-02 14:11:54,087 - ml_dataset_generator.orchestrator - INFO - ======================================================================
+2025-12-02 14:11:54,087 - ml_dataset_generator.orchestrator - INFO - Starting ML Dataset Generation Pipeline
+2025-12-02 14:11:54,087 - ml_dataset_generator.orchestrator - INFO - Parallel processing: True, Workers: 10
+2025-12-02 14:11:54,087 - ml_dataset_generator.orchestrator - INFO - Append mode: True
+2025-12-02 14:11:54,087 - ml_dataset_generator.orchestrator - INFO - ======================================================================
+2025-12-02 14:11:54,088 - ml_dataset_generator.orchestrator - INFO - Step 1: Generating patient profiles
+2025-12-02 14:11:54,106 - ml_dataset_generator.orchestrator - INFO - Generated 1000 patient profiles
+2025-12-02 14:11:54,108 - ml_dataset_generator.orchestrator - INFO - Step 2: Running patient simulations
+2025-12-02 14:11:54,108 - ml_dataset_generator.orchestrator - INFO - Running 20 batches with batch_size=50
+2025-12-02 14:11:54,108 - ml_dataset_generator.simulation_runner - INFO - Starting Batch 1/20
+2025-12-02 14:11:54,108 - ml_dataset_generator.simulation_runner - INFO - Simulating 50 patients for 3 days each
+2025-12-02 14:11:54,108 - ml_dataset_generator.simulation_runner - INFO - Parallel processing enabled with 10 workers
